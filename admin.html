@@ -134,14 +134,14 @@ footer{padding:40px 0;color:var(--a);text-align:center;font-size:13px}
 
 <div id="crmV" hidden><div class="w" style="padding-top:26px;padding-bottom:50px">
 <h2>Admin • Matheus Du Corte</h2><p><a href="#" style="color:#fff">Ver o site</a></p>
-<div id="crmBody"></div></div></div>
+<div id="botBox"></div><div id="crmBody"></div></div></div>
 <div id="modal" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 /* ====== CONFIGURE AQUI (Supabase > Project Settings > API) ====== */
-const SUPABASE_URL='https://lhcpicchqkyaewfyyfkl.supabase.co';
-const SUPABASE_KEY='sb_publishable_WJN-oEQv1jzk2j7--Cap8w_0F66-vwj';
+const SUPABASE_URL='COLE_AQUI_A_URL_DO_PROJETO';
+const SUPABASE_KEY='COLE_AQUI_A_CHAVE_ANON_PUBLIC';
 /* ================================================================ */
 const pad=n=>String(n).padStart(2,'0');
 const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
@@ -262,18 +262,31 @@ function loginUI(body){const c=el('div','card');c.style.maxWidth='420px';c.style
   c.append(el('h3',0,'Acesso do administrador'),el('p','m','Entre para abrir o painel.'),em,pw,bt,er);body.append(c)}
 function crmRender(){const body=$('#crmBody');body.replaceChildren();if(!authed()){loginUI(body);return}
   if(!db){const c=el('div','card');c.append(el('b',0,!db?'Você não está conectado ao Claude neste navegador.':'Esta conta não tem permissão de edição.'),el('p','m',!db?'Abra este link dentro do app Claude ou num navegador onde você está logado com a conta que criou o site, e recarregue a página.':'Entre com a conta do dono (a que criou o site) ou peça acesso de Editor.'));body.append(c);return}
-  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});const so=el('button','btn s g','Sair');so.onclick=()=>{sb&&sb.auth.signOut()};tb.append(so);body.append(tb);
+  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});const bo=el('button','btn s'+(botOn?'':' g'),'🤖 Alerta 20 min: '+(botOn?'LIGADO':'DESLIGADO'));bo.onclick=()=>{botOn=!botOn;try{localStorage.setItem('mdcBot',botOn?'1':'0')}catch(e){}crmRender();botTick()};tb.append(bo);const so=el('button','btn s g','Sair');so.onclick=()=>{sb&&sb.auth.signOut()};tb.append(so);body.append(tb);
   ({resumo:cResumo,agendados:cAgenda,bloqueios:cBloq,horarios:cHoras,barbeiros:cBarb}[tab])(body)}
 function cResumo(body){const T=iso(new Date()),s7=addD(T,-6),mo=T.slice(0,7);
   const P=[['Hoje',b=>b.date===T],['Últimos 7 dias',b=>b.date>=s7&&b.date<=T],['Mês atual',b=>b.date.slice(0,7)===mo]];
   const k=el('div','kp');P.forEach(([n,f])=>{const c=el('div','card');c.append(el('small',0,n.toUpperCase()),el('b',0,money(sum(f,'concluido'))),
     el('small',0,cnt(f,'concluido')+' atendidos • previsto '+money(sum(f,'aguardando'))+' ('+cnt(f,'aguardando')+' aguardando) • '+cnt(f,'faltou')+' faltas'));k.append(c)});body.append(k);
   body.append(el('p','m','Faturamento = serviços marcados como Concluído na aba Agendados, com o preço da época do agendamento.'))}
+const alertMsg=(b,min)=>'Olá '+b.name+'! ⏰ Seu horário na Matheus Du Corte '+(min?'é daqui a '+min+' minutos ('+b.time+')':'é '+(b.date===iso(new Date())?'hoje':'dia '+br(b.date))+' às '+b.time)+'.\n\n⚠️ Atenção: caso você não compareça, ficará bloqueado por 3 dias sem poder cortar.\n\nSe não puder vir, avise agora para liberarmos o horário. Te esperamos! 💈';
+let botOn=(()=>{try{return localStorage.getItem('mdcBot')!=='0'}catch(e){return true}})(),lastDue='';
+const nowMin=()=>{const n=new Date();return n.getHours()*60+n.getMinutes()};
+const dueNow=()=>bookings.filter(b=>b.date===iso(new Date())&&b.status==='aguardando'&&!b.alerted&&mins(b.time)-nowMin()<=20&&mins(b.time)-nowMin()>=-5);
+function beep(){try{const c=new(window.AudioContext||window.webkitAudioContext)(),o=c.createOscillator();o.connect(c.destination);o.frequency.value=880;o.start();setTimeout(()=>{o.stop();c.close()},350)}catch(e){}}
+function botTick(){const box=$('#botBox');if(!box)return;box.replaceChildren();
+  if(!botOn||!db||!authed()||$('#crmV').hidden)return;const d=dueNow();if(!d.length){lastDue='';return}
+  const k=d.map(b=>b.id).join();if(k!==lastDue){lastDue=k;beep()}
+  d.forEach(b=>{const r=el('div','cl hot');const m=el('div');m.append(el('b',0,'⏰ '+b.name+' — '+b.time),el('br'),el('small','m','Faltam '+Math.max(0,mins(b.time)-nowMin())+' min • hora de avisar no WhatsApp'));
+    const a=el('a','btn s wa','Enviar alerta');a.href=waLink(b,alertMsg(b,20));a.target='_blank';a.rel='noopener';
+    a.onclick=()=>{db.collection('bookings').doc(b.id).update({alerted:true}).catch(()=>{})};
+    const ac=el('div','acts');ac.append(a);r.append(m,ac);box.append(r)})}
+setInterval(botTick,20000);
 function cAgenda(body){const T=iso(new Date());
   const L=bookings.filter(b=>b.date>=T&&b.status==='aguardando').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
   const card=b=>{const hot=b.date===T,c=el('div','cl'+(hot?' hot':''));c.append(el('div','t',b.time));
     const m=el('div');m.append(el('b',0,b.name),el('br'),el('small','m',(hot?'Hoje':br(b.date))+' • '+label(SERVICES,b.service)+' • '+label(METHODS,b.method)+' • '+money(b.price)),el('br'),el('small','m','📱 '+(((contacts[b.id]||{}).phone)||'sem contato')));c.append(m);
-    const a=el('div','acts');const w=el('a','btn s wa','WhatsApp');w.href=waLink(b,'Olá '+b.name+'! Aqui é da Matheus Du Corte. Seu horário '+(hot?'hoje':'dia '+br(b.date))+' às '+b.time+' está confirmado.');w.target='_blank';w.rel='noopener';a.append(w);
+    const a=el('div','acts');const w=el('a','btn s wa','WhatsApp');w.href=waLink(b,'Olá '+b.name+'! Aqui é da Matheus Du Corte. Seu horário '+(hot?'hoje':'dia '+br(b.date))+' às '+b.time+' está confirmado.');w.target='_blank';w.rel='noopener';const al=el('a','btn s g','⏰ Alertar');al.href=waLink(b,alertMsg(b));al.target='_blank';al.rel='noopener';a.append(w,al);
     [['Concluir','concluido'],['Faltou','faltou'],['Cancelar','cancelado']].forEach(([n,s])=>{const x=el('button','btn s'+(s==='concluido'?'':' g'),n);x.onclick=()=>setSt(b,s);a.append(x)});c.append(a);return c};
   body.append(el('h3','h3','Clientes de hoje'));const h=L.filter(b=>b.date===T);if(!h.length)body.append(el('p','m','Nenhum agendamento para hoje.'));h.forEach(b=>body.append(card(b)));
   body.append(el('h3','h3','Próximos dias'));const p=L.filter(b=>b.date>T);if(!p.length)body.append(el('p','m','Nada agendado ainda.'));p.forEach(b=>body.append(card(b)));
@@ -317,7 +330,7 @@ function cBarb(body){const g=el('div','grid');g.style.gridTemplateColumns='repea
 
 /* ---------- ROUTER / BOOT ---------- */
 function route(){const c=true;$('#siteV').hidden=c;$('#crmV').hidden=!c;if(c)crmRender();window.scrollTo(0,0)}
-const refresh=()=>{$('#crmV').hidden?renderAll():crmRender()};
+const refresh=()=>{$('#crmV').hidden?renderAll():crmRender();botTick()};
 addEventListener('hashchange',route);
 function tick(){$('#clock').textContent='Atualizado em tempo real • agora '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});renderSlots();renderQueue()}
 renderAll();tick();setInterval(tick,30000);route();
