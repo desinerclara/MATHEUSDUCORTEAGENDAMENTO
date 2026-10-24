@@ -74,6 +74,12 @@ input,textarea,select{width:100%;background:var(--s2);border:1px solid var(--b);
 .m{color:var(--m)}
 .ok{display:none;margin-top:14px;padding:14px;border:1px solid #666;border-radius:10px;background:var(--s2)}
 .err{color:#f0b4b4;margin-top:10px}
+.prog{display:flex;gap:6px;overflow-x:auto;margin:6px 0 4px}
+.pg{flex:1;min-width:92px;background:var(--s);border:1px solid var(--b);color:var(--m);border-radius:10px;padding:9px 6px;font:600 12px Inter;cursor:pointer;transition:.15s}
+.pg.on{background:#e8e8e8;color:#000;border-color:#fff}.pg.done{color:#fff;border-color:#777}
+.st{animation:pop .25s}
+.nav{margin-top:18px;justify-content:space-between}.nav .btn{min-width:130px}
+.resume{margin-top:14px;padding:12px;border:1px solid var(--b);border-radius:10px;color:var(--a);background:var(--s)}.resume:empty{display:none}
 footer{padding:40px 0;color:var(--a);text-align:center;font-size:13px}
 #modal{position:fixed;inset:0;z-index:90;background:#000c;display:grid;place-items:center;padding:20px}
 #modal .card{max-width:420px;animation:pop .2s;border-color:#888}
@@ -104,14 +110,17 @@ footer{padding:40px 0;color:var(--a);text-align:center;font-size:13px}
 <main class="w">
 <section id="agendar">
 <h2>Agendar horário</h2><p>Monte seu atendimento em poucos toques.</p>
-<div class="lbl">1 • Barbeiro</div><div class="grid" id="barbers"></div>
-<div class="lbl">2 • Modelo do corte</div><div class="grid" id="methods"></div>
-<div class="lbl">3 • Serviço</div><div class="grid" id="services"></div>
-<div class="lbl">4 • Dia e horário <span class="m" id="free" style="letter-spacing:0;text-transform:none"></span></div>
-<div class="card pick"><div class="row days" id="days"></div><div id="slots"></div></div>
-<div class="lbl">5 • Seus dados</div>
+<div class="prog" id="prog"></div>
+<div class="st" data-s="1"><div class="lbl">1 • Barbeiro</div><div class="grid" id="barbers"></div></div>
+<div class="st" data-s="2"><div class="lbl">2 • Modelo do corte</div><div class="grid" id="methods"></div></div>
+<div class="st" data-s="3"><div class="lbl">3 • Serviço</div><div class="grid" id="services"></div></div>
+<div class="st" data-s="4"><div class="lbl">4 • Dia e horário <span class="m" id="free" style="letter-spacing:0;text-transform:none"></span></div>
+<div class="card pick"><div class="row days" id="days"></div><div id="slots"></div></div></div>
+<div class="st" data-s="5"><div class="lbl">5 • Seus dados</div>
 <div class="two"><input id="name" placeholder="Seu nome" maxlength="40" autocomplete="given-name"><input id="phone" placeholder="WhatsApp com DDD" inputmode="tel" maxlength="16" autocomplete="tel"></div>
-<div style="margin-top:16px"><button class="btn" id="go" disabled>Confirmar agendamento</button></div>
+<div class="resume" id="resume"></div>
+<div style="margin-top:16px"><button class="btn" id="go" disabled>Confirmar agendamento</button></div></div>
+<div class="nav row" id="nav"><button class="btn g" id="back">← Voltar</button><button class="btn" id="next">Continuar →</button></div>
 <div class="err" id="err"></div><div class="ok" id="ok"></div>
 </section>
 <section id="fila">
@@ -128,7 +137,12 @@ footer{padding:40px 0;color:var(--a);text-align:center;font-size:13px}
 <div id="crmBody"></div></div></div>
 <div id="modal" hidden></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
+/* ====== CONFIGURE AQUI (Supabase > Project Settings > API) ====== */
+const SUPABASE_URL='COLE_AQUI_A_URL_DO_PROJETO';
+const SUPABASE_KEY='COLE_AQUI_A_CHAVE_ANON_PUBLIC';
+/* ================================================================ */
 const pad=n=>String(n).padStart(2,'0');
 const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const pd=s=>{const[a,b,c]=s.split('-');return new Date(+a,b-1,+c)};
@@ -145,7 +159,7 @@ const DAYN=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const HOURS_DEF={step:30,days:Object.fromEntries([0,1,2,3,4,5,6].map(i=>[i,{on:true,open:'09:00',close:'19:00'}]))};
 const PRICES_DEF={corte:35,'corte-barba':55,barba:25};
 const BASE=[{id:'matheus',name:'Matheus',role:'Barbeiro • Dono',bio:'Cortes clássicos e modernos, com acabamento de navalha.'}];
-let db=null,canEdit=false,dbB={},bookings=[],contacts={},blocks=[],bans={},cfg={};
+let sb=null,session=null,db=null,canEdit=false,dbB={},bookings=[],contacts={},blocks=[],bans={},cfg={};
 const sel={barber:'matheus',method:null,service:null,date:iso(new Date()),time:null};
 const hours=()=>({...HOURS_DEF,...(cfg.hours||{}),days:{...HOURS_DEF.days,...((cfg.hours||{}).days||{})}});
 const prices=()=>({...PRICES_DEF,...(cfg.prices||{})});
@@ -162,12 +176,12 @@ function opts(box,list,key){box.replaceChildren();
   list.forEach(([id,n,s,img])=>{const b=el('button','card opt'+(sel[key]===id?' on':''));
     if(img){const p=el('div','pic');const i=el('img');i.src=img;i.alt=n;p.append(i);b.append(p)}
     const pr=key==='service'?' • '+money(prices()[id]):'';
-    b.append(el('b',0,n),el('small',0,(s||'Disponível')+pr));b.onclick=()=>{sel[key]=id;renderAll()};box.append(b)})}
+    b.append(el('b',0,n),el('small',0,(s||'Disponível')+pr));b.onclick=()=>{sel[key]=id;renderAll();setTimeout(()=>go2(1),250)};box.append(b)})}
 function renderBarbers(){const box=$('#barbers');box.replaceChildren();
   barbers().forEach(b=>{const c=el('button','card opt'+(sel.barber===b.id?' on':''));
     c.append(avatar(b),el('b',0,b.name),el('small',0,b.role||'Barbeiro'));
     if(b.bio){const p=el('small',0,b.bio);p.style.display='block';p.style.marginTop='6px';c.append(p)}
-    c.onclick=()=>{sel.barber=b.id;sel.time=null;renderAll()};box.append(c)});
+    c.onclick=()=>{sel.barber=b.id;sel.time=null;renderAll();setTimeout(()=>go2(1),250)};box.append(c)});
   const s=el('div','card soon');const a=el('div','av','+');a.style.fontFamily='Inter';s.append(a,el('b',0,'Novos barbeiros'),el('small',0,'Em breve'));box.append(s)}
 function weekDays(){const t=new Date(),dow=t.getDay();let n=(7-dow)%7+1;if(dow===6||dow===0)n+=7;const r=[];
   for(let i=0;i<n;i++){const d=new Date();d.setDate(d.getDate()+i);if(slotsFor(iso(d)).length)r.push(d)}return r}
@@ -186,7 +200,7 @@ function renderSlots(){const box=$('#slots');box.replaceChildren();const now=new
       const bl=isBlocked(sel.date,sel.barber,t),bk=taken.has(t);
       if(bl)c.classList.add('bl');else if(bk)c.classList.add('bk');
       c.disabled=bl||bk||past;if(!c.disabled)free++;c.title=bl?'Indisponível':bk?'Já agendado':'';
-      c.onclick=()=>{sel.time=t;renderAll()};sl.append(c)});g.append(sl);box.append(g)});
+      c.onclick=()=>{sel.time=t;renderAll();setTimeout(()=>go2(1),250)};sl.append(c)});g.append(sl);box.append(g)});
   if(!all.length)box.append(el('p','m','Sem atendimento neste dia.'));
   $('#free').textContent=all.length?'• '+free+' livres (tempo real)':''}
 function renderQueue(){const box=$('#queue');box.replaceChildren();const today=iso(new Date());
@@ -197,7 +211,17 @@ function renderQueue(){const box=$('#queue');box.replaceChildren();const today=i
     const r=el('div','q'+(idx===0?' now':''));r.append(el('div','t',b.time));
     const mid=el('div');mid.append(el('div',0,b.name),el('small','m',label(SERVICES,b.service)+' • '+label(METHODS,b.method)+' • '+(barbers().find(x=>x.id===b.barber)||{name:''}).name));r.append(mid);
     const bd=el('span','badge',done?'Concluído':idx===0?'Cliente da vez':idx===1?'Próximo':'Aguardando');bd.style.marginLeft='auto';r.append(bd);box.append(r)})}
-function renderForm(){$('#go').disabled=!(sel.method&&sel.service&&sel.time&&$('#name').value.trim()&&digits($('#phone').value).length>=10)}
+let step=1;
+const reqOk=n=>n===1?!!sel.barber:n===2?!!sel.method:n===3?!!sel.service:n===4?!!sel.time:true;
+function go2(d){if(d>0&&!reqOk(step))return;step=Math.max(1,Math.min(5,step+d));renderAll();$('#prog').scrollIntoView({behavior:'smooth',block:'start'})}
+function updStep(){document.querySelectorAll('.st').forEach(e=>e.hidden=+e.dataset.s!==step);
+  const p=$('#prog');p.replaceChildren();['Barbeiro','Modelo','Serviço','Horário','Dados'].forEach((n,i)=>{const b=el('button','pg'+(i+1===step?' on':i+1<step?' done':''),(i+1)+' • '+n);
+    b.onclick=()=>{let ok=true;for(let k=1;k<=i;k++)if(!reqOk(k))ok=false;if(ok){step=i+1;renderAll()}};p.append(b)});
+  $('#back').disabled=step===1;$('#next').hidden=step===5;$('#next').disabled=!reqOk(step);
+  const bn=(barbers().find(x=>x.id===sel.barber)||{}).name;
+  $('#resume').textContent=step===5?[bn,label(METHODS,sel.method),label(SERVICES,sel.service),sel.time?br(sel.date)+' às '+sel.time:''].filter(Boolean).join(' • '):''}
+$('#back').onclick=()=>go2(-1);$('#next').onclick=()=>go2(1);
+function renderForm(){updStep();$('#go').disabled=!(sel.method&&sel.service&&sel.time&&$('#name').value.trim()&&digits($('#phone').value).length>=10)}
 function renderAll(){renderBarbers();opts($('#methods'),METHODS,'method');opts($('#services'),SERVICES,'service');renderDays();renderSlots();renderQueue();renderForm()}
 $('#name').oninput=renderForm;$('#phone').oninput=renderForm;
 
@@ -209,8 +233,8 @@ function confirmModal(){return new Promise(res=>{const m=$('#modal');m.replaceCh
 $('#go').onclick=async()=>{
   const err=$('#err');err.textContent='';const ok=$('#ok');ok.style.display='none';
   const name=$('#name').value.trim(),phone=digits($('#phone').value);
-  const id=[sel.date,sel.barber,sel.time.replace(':','')].join('_');
-  if(bookings.some(b=>b.id===id&&active(b))||isBlocked(sel.date,sel.barber,sel.time)){err.textContent='Esse horário acabou de ser ocupado. Escolha outro.';renderAll();return}
+  const id=[sel.date,sel.barber,sel.time.replace(':',''),Math.random().toString(36).slice(2,7)].join('_');
+  if(bookings.some(b=>b.date===sel.date&&b.barber===sel.barber&&b.time===sel.time&&active(b))||isBlocked(sel.date,sel.barber,sel.time)){err.textContent='Esse horário acabou de ser ocupado. Escolha outro.';renderAll();return}
   const h=await hash(phone),ban=bans[h];
   if(ban&&ban.until>=iso(new Date())){err.textContent='Você está bloqueado até '+br(ban.until)+' por não ter comparecido a um agendamento.';return}
   if(!await confirmModal())return;
@@ -218,7 +242,7 @@ $('#go').onclick=async()=>{
   try{if(db){await db.collection('bookings').doc(id).set(rec);await db.collection('contacts').doc(id).set({phone})}else bookings=bookings.filter(b=>b.id!==id).concat(rec)}
   catch(e){err.textContent='Não foi possível agendar agora. Tente outro horário.';return}
   ok.style.display='block';ok.textContent='Agendado! '+name+', '+label(SERVICES,rec.service)+' ('+label(METHODS,rec.method)+') em '+br(rec.date)+' às '+rec.time+'.';
-  sel.time=null;$('#name').value='';$('#phone').value='';renderAll()};
+  sel.time=null;step=1;$('#name').value='';$('#phone').value='';renderAll()};
 
 /* ---------- CRM ---------- */
 let tab='resumo',blk={date:iso(new Date()),barber:'all'},photos={};
@@ -228,19 +252,17 @@ const cnt=(f,st)=>bookings.filter(b=>f(b)&&b.status===st).length;
 const waLink=(b,txt)=>{let p=digits((contacts[b.id]||{}).phone);if(p.length<=11)p='55'+p;return'https://wa.me/'+p+'?text='+encodeURIComponent(txt)};
 function setSt(b,st){if(!db)return;db.collection('bookings').doc(b.id).update({status:st}).catch(()=>{});
   if(st==='faltou'&&contacts[b.id])hash(contacts[b.id].phone).then(h=>db.collection('bans').doc(h).set({until:addD(b.date,3),name:b.name}))}
-const AUTH='d0563a457d3fde3df677bd2c2ffac53cf16d9a193cc9c3be6d7ba639de6d4bf7';
-const authed=()=>{try{return sessionStorage.getItem('mdcA')==='1'}catch(e){return window.__a===1}};
+const authed=()=>!!session;
 async function sha(s){const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(h)].map(x=>pad(x.toString(16))).join('')}
 function loginUI(body){const c=el('div','card');c.style.maxWidth='420px';c.style.margin='20px auto';
   const em=el('input');em.type='email';em.placeholder='E-mail';em.autocomplete='username';const pw=el('input');pw.type='password';pw.placeholder='Senha';pw.autocomplete='current-password';
   const er=el('div','err');const bt=el('button','btn','Entrar');bt.style.cssText='margin-top:14px;width:100%';
-  const go=async()=>{er.textContent='';const h=await sha('mdc-admin:'+em.value.trim().toLowerCase()+':'+pw.value);
-    if(h===AUTH){window.__a=1;try{sessionStorage.setItem('mdcA','1')}catch(e){}crmRender()}else er.textContent='E-mail ou senha incorretos.'};
+  const go=async()=>{er.textContent='';if(!sb){er.textContent='Configure a URL e a chave do Supabase no topo do arquivo.';return}const {error}=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});if(error)er.textContent='E-mail ou senha incorretos.'};
   bt.onclick=go;pw.onkeydown=e=>{if(e.key==='Enter')go()};
   c.append(el('h3',0,'Acesso do administrador'),el('p','m','Entre para abrir o painel.'),em,pw,bt,er);body.append(c)}
 function crmRender(){const body=$('#crmBody');body.replaceChildren();if(!authed()){loginUI(body);return}
   if(!db){const c=el('div','card');c.append(el('b',0,!db?'Você não está conectado ao Claude neste navegador.':'Esta conta não tem permissão de edição.'),el('p','m',!db?'Abra este link dentro do app Claude ou num navegador onde você está logado com a conta que criou o site, e recarregue a página.':'Entre com a conta do dono (a que criou o site) ou peça acesso de Editor.'));body.append(c);return}
-  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});const so=el('button','btn s g','Sair');so.onclick=()=>{window.__a=0;try{sessionStorage.removeItem('mdcA')}catch(e){}crmRender()};tb.append(so);body.append(tb);
+  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});const so=el('button','btn s g','Sair');so.onclick=()=>{sb&&sb.auth.signOut()};tb.append(so);body.append(tb);
   ({resumo:cResumo,agendados:cAgenda,bloqueios:cBloq,horarios:cHoras,barbeiros:cBarb}[tab])(body)}
 function cResumo(body){const T=iso(new Date()),s7=addD(T,-6),mo=T.slice(0,7);
   const P=[['Hoje',b=>b.date===T],['Últimos 7 dias',b=>b.date>=s7&&b.date<=T],['Mês atual',b=>b.date.slice(0,7)===mo]];
@@ -300,12 +322,27 @@ addEventListener('hashchange',route);
 function tick(){$('#clock').textContent='Atualizado em tempo real • agora '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});renderSlots();renderQueue()}
 renderAll();tick();setInterval(tick,30000);route();
 setTimeout(()=>{const s=$('#splash');s.classList.add('out');document.body.classList.remove('lock');setTimeout(()=>s.remove(),1000)},2900);
+
+function startDb(){
+  if(!sb)return;
+  db={collection:c=>({
+    doc:id=>({
+      set:async d=>{const row=c==='config'?{id,data:d}:{...d,id};const q=(c==='bookings'||c==='contacts')?sb.from(c).insert(row):sb.from(c).upsert(row);const {error}=await q;if(error)throw error},
+      update:async d=>{const {error}=await sb.from(c).update(d).eq('id',id);if(error)throw error},
+      delete:async()=>{const {error}=await sb.from(c).delete().eq('id',id);if(error)throw error}}),
+    onSnapshot:(f,e)=>{const run=async()=>{const {data,error}=await sb.from(c).select('*');if(error){e&&e(error);return}
+        f({docs:data.map(r=>({id:r.id,data:()=>{if(c==='config')return r.data;const {id:_,...o}=r;return o}}))})};
+      run();setInterval(run,15000);sb.channel('rt-'+c).on('postgres_changes',{event:'*',schema:'public',table:c},run).subscribe()}})};
+}
 (async()=>{try{
-  const user=window.claude&&await claude.use('user');canEdit=!!(user&&user.canEdit());
-  db=window.claude&&await claude.use('db');if(!db)return;
+  if(!SUPABASE_URL.startsWith('http')||!window.supabase){route();return}
+  sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);startDb();
+  const r=await sb.auth.getSession();session=r.data.session;canEdit=!!session;
   const L=(c,f)=>{try{db.collection(c).onSnapshot(s=>{f(s.docs.map(d=>({id:d.id,...d.data()})));refresh()},()=>{})}catch(e){}};
   L('bookings',a=>bookings=a);L('blocks',a=>blocks=a);L('bans',a=>{bans={};a.forEach(x=>bans[x.id]=x)});
   L('config',a=>{cfg={};a.forEach(x=>cfg[x.id]=x)});L('barbers',a=>{dbB={};a.forEach(x=>dbB[x.id]=x)});
-  L('contacts',a=>{contacts={};a.forEach(x=>contacts[x.id]=x)});
-  route()}catch(e){}})();
+  let cs=false;const startC=()=>{if(cs)return;cs=true;L('contacts',a=>{contacts={};a.forEach(x=>contacts[x.id]=x)})};
+  if(session)startC();
+  sb.auth.onAuthStateChange((ev,s)=>{session=s;canEdit=!!s;if(s)startC();refresh()});
+  route()}catch(e){console.error(e)}})();
 </script></body></html>
