@@ -228,9 +228,19 @@ const cnt=(f,st)=>bookings.filter(b=>f(b)&&b.status===st).length;
 const waLink=(b,txt)=>{let p=digits((contacts[b.id]||{}).phone);if(p.length<=11)p='55'+p;return'https://wa.me/'+p+'?text='+encodeURIComponent(txt)};
 function setSt(b,st){if(!db)return;db.collection('bookings').doc(b.id).update({status:st}).catch(()=>{});
   if(st==='faltou'&&contacts[b.id])hash(contacts[b.id].phone).then(h=>db.collection('bans').doc(h).set({until:addD(b.date,3),name:b.name}))}
-function crmRender(){const body=$('#crmBody');body.replaceChildren();
+const AUTH='d0563a457d3fde3df677bd2c2ffac53cf16d9a193cc9c3be6d7ba639de6d4bf7';
+const authed=()=>{try{return sessionStorage.getItem('mdcA')==='1'}catch(e){return window.__a===1}};
+async function sha(s){const h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(h)].map(x=>pad(x.toString(16))).join('')}
+function loginUI(body){const c=el('div','card');c.style.maxWidth='420px';c.style.margin='20px auto';
+  const em=el('input');em.type='email';em.placeholder='E-mail';em.autocomplete='username';const pw=el('input');pw.type='password';pw.placeholder='Senha';pw.autocomplete='current-password';
+  const er=el('div','err');const bt=el('button','btn','Entrar');bt.style.cssText='margin-top:14px;width:100%';
+  const go=async()=>{er.textContent='';const h=await sha('mdc-admin:'+em.value.trim().toLowerCase()+':'+pw.value);
+    if(h===AUTH){window.__a=1;try{sessionStorage.setItem('mdcA','1')}catch(e){}crmRender()}else er.textContent='E-mail ou senha incorretos.'};
+  bt.onclick=go;pw.onkeydown=e=>{if(e.key==='Enter')go()};
+  c.append(el('h3',0,'Acesso do administrador'),el('p','m','Entre para abrir o painel.'),em,pw,bt,er);body.append(c)}
+function crmRender(){const body=$('#crmBody');body.replaceChildren();if(!authed()){loginUI(body);return}
   if(!canEdit||!db){body.append(el('div','card','Acesso restrito. Entre com a conta do dono para abrir o CRM.'));return}
-  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});body.append(tb);
+  const tb=el('div','tabs');TABS.forEach(([k,n])=>{const b=el('button','btn s'+(tab===k?'':' g'),n);b.onclick=()=>{tab=k;crmRender()};tb.append(b)});const so=el('button','btn s g','Sair');so.onclick=()=>{window.__a=0;try{sessionStorage.removeItem('mdcA')}catch(e){}crmRender()};tb.append(so);body.append(tb);
   ({resumo:cResumo,agendados:cAgenda,bloqueios:cBloq,horarios:cHoras,barbeiros:cBarb}[tab])(body)}
 function cResumo(body){const T=iso(new Date()),s7=addD(T,-6),mo=T.slice(0,7);
   const P=[['Hoje',b=>b.date===T],['Últimos 7 dias',b=>b.date>=s7&&b.date<=T],['Mês atual',b=>b.date.slice(0,7)===mo]];
