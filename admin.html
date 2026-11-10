@@ -304,6 +304,10 @@ let tab='resumo',blk={date:iso(new Date()),barber:'all'},photos={};
 const TABS=[['resumo','Faturamento'],['agendados','Agendados'],['bloqueios','Bloquear horários'],['horarios','Horários'],['servicos','Serviços e preços'],['planos','Combos mensais'],['barbeiros','Barbeiros']];
 const sum=(f,st)=>bookings.filter(b=>f(b)&&b.status===st).reduce((s,b)=>s+(+b.price||0),0);
 const cnt=(f,st)=>bookings.filter(b=>f(b)&&b.status===st).length;
+const PIX_DESDE='2026-11-10';/* agendamentos a partir desta data exigem sinal Pix de 50% */
+const sinal=b=>(b.date>=PIX_DESDE&&(b.status==='aguardando'||b.status==='faltou'))?(+b.price||0)/2:0;
+const sinais=f=>bookings.filter(b=>f(b)).reduce((s,b)=>s+sinal(b),0);
+const resta=f=>bookings.filter(b=>f(b)&&b.status==='aguardando').reduce((s,b)=>s+(+b.price||0)-sinal(b),0);
 const waLink=(b,txt)=>{let p=digits((contacts[b.id]||{}).phone);if(p.length<=11)p='55'+p;return'https://wa.me/'+p+'?text='+encodeURIComponent(txt)};
 function setSt(b,st){if(!db)return;db.collection('bookings').doc(b.id).update({status:st}).catch(()=>{});
   if(st==='faltou'&&contacts[b.id])hash(contacts[b.id].phone).then(h=>db.collection('bans').doc(h).set({until:addD(b.date,3),name:b.name}))}
@@ -321,9 +325,9 @@ function crmRender(){const body=$('#crmBody');body.replaceChildren();if(!authed(
   ({resumo:cResumo,agendados:cAgenda,bloqueios:cBloq,horarios:cHoras,servicos:cSvc,planos:cPlanos,barbeiros:cBarb}[tab])(body)}
 function cResumo(body){const T=iso(new Date()),s7=addD(T,-6),mo=T.slice(0,7);
   const P=[['Hoje',b=>b.date===T],['Últimos 7 dias',b=>b.date>=s7&&b.date<=T],['Mês atual',b=>b.date.slice(0,7)===mo]];
-  const k=el('div','kp');P.forEach(([n,f])=>{const c=el('div','card');c.append(el('small',0,n.toUpperCase()),el('b',0,money(sum(f,'concluido'))),
-    el('small',0,cnt(f,'concluido')+' atendidos • previsto '+money(sum(f,'aguardando'))+' ('+cnt(f,'aguardando')+' aguardando) • '+cnt(f,'faltou')+' faltas'));k.append(c)});const act=planReqs.filter(q=>q.status==='ativo'&&(q.created||'').slice(0,7)===mo);const pc=el('div','card');pc.append(el('small',0,'COMBOS MENSAIS ATIVOS (MÊS)'),el('b',0,money(act.reduce((s,q)=>s+(+q.price||0),0))),el('small',0,act.length+' combo(s) ativo(s)'));k.append(pc);body.append(k);
-  body.append(el('p','m','Faturamento = serviços marcados como Concluído na aba Agendados, com o preço da época do agendamento.'))}
+  const k=el('div','kp');P.forEach(([n,f])=>{const c=el('div','card');c.append(el('small',0,n.toUpperCase()),el('b',0,money(sum(f,'concluido')+sinais(f))),
+    el('small',0,cnt(f,'concluido')+' cortes realizados (100% = '+money(sum(f,'concluido'))+') • sinais Pix 50% = '+money(sinais(f))+' ('+cnt(f,'aguardando')+' aguardando) • falta receber '+money(resta(f))+' • '+cnt(f,'faltou')+' faltas'));k.append(c)});const act=planReqs.filter(q=>q.status==='ativo'&&(q.created||'').slice(0,7)===mo);const pc=el('div','card');pc.append(el('small',0,'COMBOS MENSAIS ATIVOS (MÊS)'),el('b',0,money(act.reduce((s,q)=>s+(+q.price||0),0))),el('small',0,act.length+' combo(s) ativo(s)'));k.append(pc);body.append(k);
+  body.append(el('p','m','Faturamento = sinais Pix de 50% dos agendamentos (entram automaticamente) + valor total (100%) dos cortes marcados como “Corte realizado” na aba Agendados.'))}
 const alertMsg=(b,min)=>'Olá '+b.name+'! ⏰ Seu horário na Matheus Du Corte '+(min?'é daqui a '+min+' minutos ('+b.time+')':'é '+(b.date===iso(new Date())?'hoje':'dia '+br(b.date))+' às '+b.time)+'.\n\n⚠️ Atenção: caso você não compareça, ficará bloqueado por 3 dias sem poder cortar.\n\nSe não puder vir, avise agora para liberarmos o horário. Te esperamos! 💈';
 let botOn=(()=>{try{return localStorage.getItem('mdcBot')!=='0'}catch(e){return true}})(),lastDue='';
 const nowMin=()=>{const n=new Date();return n.getHours()*60+n.getMinutes()};
@@ -340,9 +344,9 @@ setInterval(botTick,20000);
 function cAgenda(body){const T=iso(new Date());
   const L=bookings.filter(b=>b.date>=T&&b.status==='aguardando').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
   const card=b=>{const hot=b.date===T,c=el('div','cl'+(hot?' hot':''));c.append(el('div','t',b.time));
-    const m=el('div');m.append(el('b',0,b.name),el('br'),el('small','m',(hot?'Hoje':br(b.date))+' • '+label(SERVICES,b.service)+' • '+label(METHODS,b.method)+' • '+money(b.price)),el('br'),el('small','m','📱 '+(((contacts[b.id]||{}).phone)||'sem contato')));c.append(m);
+    const m=el('div');m.append(el('b',0,b.name),el('br'),el('small','m',(hot?'Hoje':br(b.date))+' • '+label(SERVICES,b.service)+' • '+label(METHODS,b.method)+' • '+money(b.price)),el('br'),el('small','m',b.date>=PIX_DESDE?'💸 Sinal Pix 50%: '+money(sinal(b))+' • restante no dia: '+money((+b.price||0)-sinal(b)):'Sem sinal Pix (agendamento antigo)'),el('br'),el('small','m','📱 '+(((contacts[b.id]||{}).phone)||'sem contato')));c.append(m);
     const a=el('div','acts');const w=el('a','btn s wa','WhatsApp');w.href=waLink(b,'Olá '+b.name+'! Aqui é da Matheus Du Corte. Seu horário '+(hot?'hoje':'dia '+br(b.date))+' às '+b.time+' está confirmado.');w.target='_blank';w.rel='noopener';const al=el('a','btn s g','⏰ Alertar');al.href=waLink(b,alertMsg(b));al.target='_blank';al.rel='noopener';a.append(w,al);
-    [['Concluir','concluido'],['Faltou','faltou'],['Cancelar','cancelado']].forEach(([n,s])=>{const x=el('button','btn s'+(s==='concluido'?'':' g'),n);x.onclick=()=>setSt(b,s);a.append(x)});c.append(a);return c};
+    [['✅ Corte realizado','concluido'],['Faltou','faltou'],['Cancelar','cancelado']].forEach(([n,s])=>{const x=el('button','btn s'+(s==='concluido'?'':' g'),n);x.onclick=()=>setSt(b,s);a.append(x)});c.append(a);return c};
   body.append(el('h3','h3','Clientes de hoje'));const h=L.filter(b=>b.date===T);if(!h.length)body.append(el('p','m','Nenhum agendamento para hoje.'));h.forEach(b=>body.append(card(b)));
   body.append(el('h3','h3','Próximos dias'));const p=L.filter(b=>b.date>T);if(!p.length)body.append(el('p','m','Nada agendado ainda.'));p.forEach(b=>body.append(card(b)));
   const bl=Object.entries(bans).filter(([,v])=>v.until>=T);if(bl.length){body.append(el('h3','h3','Bloqueados por falta'));
